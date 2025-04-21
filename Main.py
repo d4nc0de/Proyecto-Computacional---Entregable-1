@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from customtkinter import CTkImage
 import io
+import threading
 
 def generar_formula_imagen(expresion_latex):
     fig, ax = plt.subplots(figsize=(10, 2.5))  
@@ -48,34 +49,47 @@ class SecondView(ctk.CTkFrame):
         ctk.CTkButton(self, text="Volver", command=self.controller.show_start_view).pack(pady=10)
 
     def calcular_expresion(self):
+        self.imagen_label.configure(text="Calculando expresión...", image=None)
+        self.after(100, self._start_thread)
+
+    def _start_thread(self):
+        threading.Thread(target=self._resolver_recurrencia, daemon=True).start()
+
+    def _resolver_recurrencia(self):
         try:
             m = int(self.m_entry.get())
             coef = [Rational(x) for x in self.coef_entry.get().split(",")]
             init_vals = [Rational(x) for x in self.init_entry.get().split(",")]
 
             if len(coef) != m or len(init_vals) != m:
-                self.imagen_label.configure(text="Error: número de coeficientes o valores iniciales incorrecto.")
+                self._update_ui_error("Error: número de coeficientes o valores iniciales incorrecto.")
                 return
 
             n = symbols('n', integer=True)
             f = Function('f')
-            
-            # Crear la ecuación de recurrencia usando los coeficientes
-            recurrence = Eq(f(n), sum(coef[i] * f(n-i-1) for i in range(m)))
-            
-            # Crear las condiciones iniciales usando los valores iniciales
+            recurrence = Eq(f(n), sum(coef[i] * f(n - i - 1) for i in range(m)))
             initial_conditions = {f(i): init_vals[i] for i in range(m)}
 
             solution = rsolve(recurrence, f(n), initial_conditions)
-            latex_expr = "f_n = " + latex(solution)
 
+            if solution is None:
+                self._update_ui_error("No se pudo encontrar una solución cerrada.")
+                return
+
+            latex_expr = "f_n = " + latex(solution)
             imagen = generar_formula_imagen(latex_expr)
-            self.imagen_label.configure(image=imagen, text="")
-            self.imagen_label.image = imagen
+
+            self.imagen_label.after(0, lambda: self._update_ui_image(imagen))
 
         except Exception as e:
-            self.imagen_label.configure(text=f"Error: {e}", image=None)
+            self._update_ui_error(f"Error: {e}")
 
+    def _update_ui_image(self, imagen):
+        self.imagen_label.configure(image=imagen, text="")
+        self.imagen_label.image = imagen
+
+    def _update_ui_error(self, mensaje):
+        self.imagen_label.after(0, lambda: self.imagen_label.configure(text=mensaje, image=None))
 
 class AppController(ctk.CTk):
     def __init__(self):
